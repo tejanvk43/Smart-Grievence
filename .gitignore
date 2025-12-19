@@ -31,3 +31,10 @@ __pycache__/
 venv/
 .venv/
 env/
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+backend/.env

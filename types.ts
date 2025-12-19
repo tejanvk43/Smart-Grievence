@@ -31,6 +31,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: UserRole;
   department?: Department; // Only for officers
 }
@@ -41,6 +42,7 @@ export interface NLPAnalysis {
   urgency: 'Low' | 'Medium' | 'High';
   keywords: string[];
   sentiment: 'Positive' | 'Neutral' | 'Negative';
+  suggestedSteps?: string[];
 }
 
 export interface Complaint {

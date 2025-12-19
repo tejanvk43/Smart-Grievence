@@ -1,38 +1,56 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from supabase import create_client, Client
 from config import Config
 from nlp_classifier import classifier
 import datetime
 import re
+import jwt
+import uuid
+import bcrypt
+import json
+from db import get_db_connection, init_db
 
 app = Flask(__name__)
 CORS(app)
 
-supabase: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
-supabase_admin: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
+# Initialize Database on Startup
+init_db()
 
-def get_auth_user(request):
-    auth_header = request.headers.get('Authorization')
+def get_auth_user(req):
+    auth_header = req.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         return None, 'Missing or invalid authorization header'
 
     token = auth_header.replace('Bearer ', '')
 
     try:
-        user = supabase.auth.get_user(token)
-        return user.user, None
+        payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"])
+        conn = get_db_connection()
+        user = conn.execute('SELECT * FROM users WHERE id = ?', (payload['sub'],)).fetchone()
+        conn.close()
+        
+        if not user:
+             return None, 'User not found'
+             
+        # Convert sqlite row to dict for easier usage
+        user_dict = dict(user)
+        return user_dict, None
+    except jwt.ExpiredSignatureError:
+        return None, 'Token has expired'
+    except jwt.InvalidTokenError:
+        return None, 'Invalid token'
     except Exception as e:
         return None, str(e)
 
 def generate_complaint_id():
     current_year = datetime.datetime.now().year
+    conn = get_db_connection()
+    result = conn.execute('SELECT id FROM complaints ORDER BY date_submitted DESC LIMIT 1').fetchone()
+    conn.close()
 
     try:
-        result = supabase_admin.table('complaints').select('id').order('created_at', desc=True).limit(1).execute()
-
-        if result.data and len(result.data) > 0:
-            last_id = result.data[0]['id']
+        if result:
+            last_id = result['id']
             match = re.search(r'-(\d+)$', last_id)
             if match:
                 next_num = int(match.group(1)) + 1
@@ -47,7 +65,7 @@ def generate_complaint_id():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'ok', 'message': 'Smart Griev Backend Running'}), 200
+    return jsonify({'status': 'ok', 'message': 'Smart Griev Backend Running (SQLite)'}), 200
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
@@ -57,44 +75,54 @@ def register():
     name = data.get('name')
     role = data.get('role', 'CITIZEN')
     department = data.get('department')
+    phone = data.get('phone', '')
 
     if not email or not password or not name:
         return jsonify({'error': 'Email, password, and name are required'}), 400
 
+    conn = get_db_connection()
     try:
-        auth_response = supabase.auth.sign_up({
-            'email': email,
-            'password': password
-        })
+        # Check if user exists
+        existing = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+        if existing:
+            return jsonify({'error': 'User already exists'}), 400
 
-        if auth_response.user:
-            profile_data = {
-                'id': auth_response.user.id,
+        user_id = str(uuid.uuid4())
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        dept_val = department if role == 'OFFICER' else None
+        
+        conn.execute(
+            'INSERT INTO users (id, email, password_hash, name, role, phone, department) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (user_id, email, hashed, name, role, phone, dept_val)
+        )
+        conn.commit()
+        
+        # Generate Token
+        token = jwt.encode({
+            'sub': user_id,
+            'email': email,
+            'role': role,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        }, Config.SECRET_KEY, algorithm="HS256")
+
+        return jsonify({
+            'user': {
+                'id': user_id,
+                'email': email,
                 'name': name,
                 'role': role,
-                'phone': data.get('phone', ''),
-                'department': department if role == 'OFFICER' else None
+                'department': dept_val
+            },
+            'session': {
+                'access_token': token
             }
-
-            supabase.table('profiles').insert(profile_data).execute()
-
-            return jsonify({
-                'user': {
-                    'id': auth_response.user.id,
-                    'email': auth_response.user.email,
-                    'name': name,
-                    'role': role,
-                    'department': department
-                },
-                'session': {
-                    'access_token': auth_response.session.access_token if auth_response.session else None
-                }
-            }), 201
-        else:
-            return jsonify({'error': 'Registration failed'}), 400
+        }), 201
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -105,31 +133,29 @@ def login():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
 
+    conn = get_db_connection()
     try:
-        auth_response = supabase.auth.sign_in_with_password({
-            'email': email,
-            'password': password
-        })
-
-        if auth_response.user:
-            profile = supabase.table('profiles').select('*').eq('id', auth_response.user.id).execute()
-
-            profile_data = profile.data[0] if profile.data else {
-                'name': email.split('@')[0],
-                'role': 'CITIZEN',
-                'department': None
-            }
-
+        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+        
+        if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
+            token = jwt.encode({
+                'sub': user['id'],
+                'email': user['email'],
+                'role': user['role'],
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+            }, Config.SECRET_KEY, algorithm="HS256")
+            
             return jsonify({
                 'user': {
-                    'id': auth_response.user.id,
-                    'email': auth_response.user.email,
-                    'name': profile_data['name'],
-                    'role': profile_data['role'],
-                    'department': profile_data.get('department')
+                    'id': user['id'],
+                    'email': user['email'],
+                    'name': user['name'],
+                    'phone': user['phone'],
+                    'role': user['role'],
+                    'department': user['department']
                 },
                 'session': {
-                    'access_token': auth_response.session.access_token
+                    'access_token': token
                 }
             }), 200
         else:
@@ -137,6 +163,8 @@ def login():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/complaints/submit', methods=['POST'])
 def submit_complaint():
@@ -152,17 +180,66 @@ def submit_complaint():
     if not title or not description or not location:
         return jsonify({'error': 'Title, description, and location are required'}), 400
 
+    conn = get_db_connection()
     try:
         nlp_result = classifier.classify(description)
-
         complaint_id = generate_complaint_id()
+        
+        # User name is in user dict
+        user_name = user['name']
 
-        profile = supabase.table('profiles').select('name').eq('id', user.id).execute()
-        user_name = profile.data[0]['name'] if profile.data else 'Unknown User'
+        complaint_data = (
+            complaint_id,
+            user['id'],
+            title,
+            description,
+            location,
+            'Submitted',
+            nlp_result['predictedDepartment'],
+            nlp_result['urgency'],
+            nlp_result['confidenceScore'],
+            json.dumps(nlp_result),
+            datetime.datetime.utcnow().isoformat(),
+            datetime.datetime.utcnow().isoformat()
+        )
 
-        complaint_data = {
+        conn.execute('''
+            INSERT INTO complaints (id, user_id, title, description, location, status, department, priority, confidence_score, nlp_analysis, date_submitted, date_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', complaint_data)
+
+        # History
+        history_data = (
+            complaint_id,
+            user['id'],
+            'Complaint Submitted',
+            None,
+            'Submitted',
+            'Initial complaint submission'
+        )
+        conn.execute('''
+            INSERT INTO complaint_history (complaint_id, user_id, action, status_from, status_to, comment)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', history_data)
+
+        # Notification
+        notification_data = (
+            user['id'],
+            complaint_id,
+            'complaint_submitted',
+            f'Your complaint {complaint_id} has been submitted and routed to {nlp_result["predictedDepartment"]}'
+        )
+        conn.execute('''
+            INSERT INTO notifications (user_id, complaint_id, type, message)
+            VALUES (?, ?, ?, ?)
+        ''', notification_data)
+        
+        conn.commit()
+
+        # Construct response
+        response_data = {
             'id': complaint_id,
-            'user_id': user.id,
+            'user_id': user['id'],
             'title': title,
             'description': description,
             'location': location,
@@ -171,70 +248,52 @@ def submit_complaint():
             'priority': nlp_result['urgency'],
             'confidence_score': nlp_result['confidenceScore'],
             'nlp_analysis': nlp_result,
-            'date_submitted': datetime.datetime.utcnow().isoformat(),
-            'date_updated': datetime.datetime.utcnow().isoformat()
+            'date_submitted': complaint_data[10],
+            'date_updated': complaint_data[11],
+            'userName': user_name
         }
-
-        result = supabase.table('complaints').insert(complaint_data).execute()
-
-        history_data = {
-            'complaint_id': complaint_id,
-            'user_id': user.id,
-            'action': 'Complaint Submitted',
-            'status_from': None,
-            'status_to': 'Submitted',
-            'comment': 'Initial complaint submission'
-        }
-        supabase.table('complaint_history').insert(history_data).execute()
-
-        notification_data = {
-            'user_id': user.id,
-            'complaint_id': complaint_id,
-            'type': 'complaint_submitted',
-            'message': f'Your complaint {complaint_id} has been submitted and routed to {nlp_result["predictedDepartment"]}'
-        }
-        supabase.table('notifications').insert(notification_data).execute()
-
-        response_data = result.data[0] if result.data else complaint_data
-        response_data['userName'] = user_name
 
         return jsonify(response_data), 201
 
     except Exception as e:
+        conn.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/complaints', methods=['GET'])
 def get_complaints():
     user, error = get_auth_user(request)
     if error:
         return jsonify({'error': error}), 401
-
+    
+    conn = get_db_connection()
     try:
-        profile = supabase.table('profiles').select('role, department').eq('id', user.id).execute()
-
-        if not profile.data:
-            return jsonify({'error': 'Profile not found'}), 404
-
-        user_role = profile.data[0]['role']
-        user_department = profile.data[0].get('department')
+        user_role = user['role']
+        user_department = user['department']
 
         if user_role == 'CITIZEN':
-            result = supabase.table('complaints').select('*').eq('user_id', user.id).order('date_submitted', desc=True).execute()
+            cursor = conn.execute('SELECT * FROM complaints WHERE user_id = ? ORDER BY date_submitted DESC', (user['id'],))
         elif user_role == 'OFFICER':
-            result = supabase.table('complaints').select('*').eq('department', user_department).order('date_submitted', desc=True).execute()
+            cursor = conn.execute('SELECT * FROM complaints WHERE department = ? ORDER BY date_submitted DESC', (user_department,))
         else:
-            result = supabase.table('complaints').select('*').order('date_submitted', desc=True).execute()
+            cursor = conn.execute('SELECT * FROM complaints ORDER BY date_submitted DESC')
+            
+        complaints = [dict(row) for row in cursor.fetchall()]
 
-        complaints = result.data or []
-
+        # Attach user names and parse JSON
         for complaint in complaints:
-            profile = supabase.table('profiles').select('name').eq('id', complaint['user_id']).execute()
-            complaint['userName'] = profile.data[0]['name'] if profile.data else 'Unknown User'
+            u = conn.execute('SELECT name FROM users WHERE id = ?', (complaint['user_id'],)).fetchone()
+            complaint['userName'] = u['name'] if u else 'Unknown User'
+            if complaint['nlp_analysis']:
+                complaint['nlp_analysis'] = json.loads(complaint['nlp_analysis'])
 
         return jsonify(complaints), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/complaints/<complaint_id>', methods=['GET'])
 def get_complaint(complaint_id):
@@ -242,27 +301,34 @@ def get_complaint(complaint_id):
     if error:
         return jsonify({'error': error}), 401
 
+    conn = get_db_connection()
     try:
-        result = supabase.table('complaints').select('*').eq('id', complaint_id).execute()
-
-        if not result.data:
+        row = conn.execute('SELECT * FROM complaints WHERE id = ?', (complaint_id,)).fetchone()
+        if not row:
             return jsonify({'error': 'Complaint not found'}), 404
-
-        complaint = result.data[0]
-
-        profile = supabase.table('profiles').select('name').eq('id', complaint['user_id']).execute()
-        complaint['userName'] = profile.data[0]['name'] if profile.data else 'Unknown User'
-
-        history = supabase.table('complaint_history').select('*').eq('complaint_id', complaint_id).order('created_at', desc=True).execute()
-        complaint['history'] = history.data or []
-
-        attachments = supabase.table('complaint_attachments').select('*').eq('complaint_id', complaint_id).execute()
-        complaint['attachments'] = attachments.data or []
+            
+        complaint = dict(row)
+        
+        # User Name
+        u = conn.execute('SELECT name FROM users WHERE id = ?', (complaint['user_id'],)).fetchone()
+        complaint['userName'] = u['name'] if u else 'Unknown User'
+        
+        # Parse JSON
+        if complaint['nlp_analysis']:
+            complaint['nlp_analysis'] = json.loads(complaint['nlp_analysis'])
+            
+        # History
+        h_rows = conn.execute('SELECT * FROM complaint_history WHERE complaint_id = ? ORDER BY created_at DESC', (complaint_id,)).fetchall()
+        complaint['history'] = [dict(r) for r in h_rows]
+        
+        # Attachments (We don't have this table in schema yet, but logic was there, leaving empty list)
+        complaint['attachments'] = [] # SQLite implementation simplified
 
         return jsonify(complaint), 200
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/complaints/<complaint_id>/status', methods=['PUT'])
 def update_status(complaint_id):
@@ -276,47 +342,52 @@ def update_status(complaint_id):
 
     if not new_status:
         return jsonify({'error': 'Status is required'}), 400
-
+        
+    conn = get_db_connection()
     try:
-        complaint = supabase.table('complaints').select('*').eq('id', complaint_id).execute()
-
-        if not complaint.data:
-            return jsonify({'error': 'Complaint not found'}), 404
-
-        old_status = complaint.data[0]['status']
-
-        update_data = {
-            'status': new_status,
-            'date_updated': datetime.datetime.utcnow().isoformat()
-        }
-
-        result = supabase.table('complaints').update(update_data).eq('id', complaint_id).execute()
-
-        history_data = {
-            'complaint_id': complaint_id,
-            'user_id': user.id,
-            'action': 'Status Updated',
-            'status_from': old_status,
-            'status_to': new_status,
-            'comment': comment
-        }
-        supabase.table('complaint_history').insert(history_data).execute()
-
-        notification_data = {
-            'user_id': complaint.data[0]['user_id'],
-            'complaint_id': complaint_id,
-            'type': 'status_updated',
-            'message': f'Your complaint {complaint_id} status has been updated to {new_status}'
-        }
-        supabase.table('notifications').insert(notification_data).execute()
-
-        return jsonify(result.data[0] if result.data else {}), 200
+        row = conn.execute('SELECT * FROM complaints WHERE id = ?', (complaint_id,)).fetchone()
+        if not row:
+             return jsonify({'error': 'Complaint not found'}), 404
+             
+        old_status = row['status']
+        user_id = row['user_id']
+        
+        updated_date = datetime.datetime.utcnow().isoformat()
+        
+        conn.execute('UPDATE complaints SET status = ?, date_updated = ? WHERE id = ?', (new_status, updated_date, complaint_id))
+        
+        # History
+        conn.execute('''
+            INSERT INTO complaint_history (complaint_id, user_id, action, status_from, status_to, comment)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (complaint_id, user['id'], 'Status Updated', old_status, new_status, comment))
+        
+        # Notification
+        conn.execute('''
+            INSERT INTO notifications (user_id, complaint_id, type, message)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, complaint_id, 'status_updated', f'Your complaint {complaint_id} status has been updated to {new_status}'))
+        
+        conn.commit()
+        
+        # Return updated complaint
+        updated_row = conn.execute('SELECT * FROM complaints WHERE id = ?', (complaint_id,)).fetchone()
+        res = dict(updated_row)
+        if res['nlp_analysis']:
+            res['nlp_analysis'] = json.loads(res['nlp_analysis'])
+            
+        return jsonify(res), 200
 
     except Exception as e:
+        conn.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/nlp/classify', methods=['POST'])
 def classify_text():
+    # Helper to test classifier without Auth if needed, but original had auth. usage
+    # We will keep auth
     user, error = get_auth_user(request)
     if error:
         return jsonify({'error': error}), 401
@@ -335,36 +406,44 @@ def classify_text():
 
 @app.route('/api/departments', methods=['GET'])
 def get_departments():
+    conn = get_db_connection()
     try:
-        result = supabase.table('departments').select('*').execute()
-        return jsonify(result.data or []), 200
+        rows = conn.execute('SELECT * FROM departments').fetchall()
+        return jsonify([dict(r) for r in rows]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
     user, error = get_auth_user(request)
     if error:
         return jsonify({'error': error}), 401
-
+        
+    conn = get_db_connection()
     try:
-        all_complaints = supabase.table('complaints').select('*').execute()
-        complaints = all_complaints.data or []
-
+        rows = conn.execute('SELECT * FROM complaints').fetchall()
+        complaints = [dict(r) for r in rows]
+        
         total = len(complaints)
         pending = len([c for c in complaints if c['status'] not in ['Resolved', 'Closed']])
         resolved = len([c for c in complaints if c['status'] == 'Resolved'])
-
+        
         if resolved > 0:
             total_time = 0
             count = 0
             for c in complaints:
                 if c['status'] == 'Resolved':
-                    submitted = datetime.datetime.fromisoformat(c['date_submitted'].replace('Z', '+00:00'))
-                    updated = datetime.datetime.fromisoformat(c['date_updated'].replace('Z', '+00:00'))
-                    days = (updated - submitted).days
-                    total_time += days
-                    count += 1
+                    # Parse dates
+                    try:
+                       submitted = datetime.datetime.fromisoformat(c['date_submitted'])
+                       updated = datetime.datetime.fromisoformat(c['date_updated'])
+                       days = (updated - submitted).days
+                       total_time += days
+                       count += 1
+                    except:
+                        pass # Valid isoformat expected
             avg_days = total_time / count if count > 0 else 0
             avg_resolution_time = f"{avg_days:.1f} Days"
         else:
@@ -376,33 +455,41 @@ def get_analytics():
             'resolved': resolved,
             'avgResolutionTime': avg_resolution_time
         }), 200
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/notifications', methods=['GET'])
 def get_notifications():
     user, error = get_auth_user(request)
     if error:
         return jsonify({'error': error}), 401
-
+        
+    conn = get_db_connection()
     try:
-        result = supabase.table('notifications').select('*').eq('user_id', user.id).order('created_at', desc=True).limit(50).execute()
-        return jsonify(result.data or []), 200
+        rows = conn.execute('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', (user['id'],)).fetchall()
+        return jsonify([dict(r) for r in rows]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/notifications/<notification_id>/read', methods=['PUT'])
 def mark_notification_read(notification_id):
     user, error = get_auth_user(request)
     if error:
         return jsonify({'error': error}), 401
-
+        
+    conn = get_db_connection()
     try:
-        result = supabase.table('notifications').update({'is_read': True}).eq('id', notification_id).eq('user_id', user.id).execute()
-        return jsonify(result.data[0] if result.data else {}), 200
+        conn.execute('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?', (notification_id, user['id']))
+        conn.commit()
+        return jsonify({'status': 'marked as read'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=Config.DEBUG, host='0.0.0.0', port=5000)

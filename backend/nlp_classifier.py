@@ -284,6 +284,75 @@ class ComplaintClassifier:
 
         return training_data
 
+        return training_data
+
+    def get_suggested_steps(self, department: str, urgency: str) -> List[str]:
+        common_steps = [
+            "Verify the complaint details and location.",
+            "Assess the severity of the issue on-site if necessary.",
+            "Assign a field officer to inspect the reported issue."
+        ]
+
+        specific_steps = {
+            'Public Works & Infrastructure': [
+                "Check for road maintenance records/schedules.",
+                "Deploy a repair crew with necessary materials (asphalt/concrete).",
+                "Ensure safety barriers are placed around the hazard."
+            ],
+            'Water Supply & Sanitation': [
+                "Inspect the pipeline/source for leaks or blockages.",
+                "Test water quality samples if contamination is reported.",
+                "Coordinate with the sanitation department for cleanup."
+            ],
+            'Electricity & Power': [
+                "Check the local grid status and transformer health.",
+                "Dispatch a lineman to repair the fault/restore power.",
+                "Ensure safety protocols are followed to prevent electrical accidents."
+            ],
+            'Transportation': [
+                "Verify schedule adherence/vehicle condition.",
+                "Address staff behavior or traffic management issues.",
+                "Review route planning if congestion is reported."
+            ],
+            'Health & Medical Services': [
+                "Investigate staff attendance/medicine availability.",
+                "Ensure facility hygiene standards are met.",
+                "Address patient grievances immediately."
+            ],
+            'Education': [
+                "Inspect school infrastructure/facilities.",
+                "Meet with school administration regarding staff/fees.",
+                "Ensure educational standards are maintained."
+            ],
+            'Police & Safety': [
+                "Dispatch a patrol unit to the reported location.",
+                "Register an FIR if a crime is confirmed.",
+                "Increase surveillance in the affected area."
+            ],
+            'Revenue & Tax': [
+                "Verify property/tax records in the database.",
+                "Process the refund/certificate issuance.",
+                "Correct any billing discrepancies."
+            ],
+            'Environment & Pollution': [
+                "Measure pollution levels at the site.",
+                "Identify the source of pollution/waste.",
+                "Enforce regulations and initiate cleanup."
+            ],
+            'Consumer Affairs': [
+                "Verify the purchase receipt and product condition.",
+                "Contact the seller/merchant for mediation.",
+                "Initiate consumer protection proceedings if fraud is found."
+            ]
+        }
+        
+        steps = specific_steps.get(department, ["Investigate the matter further."])
+        
+        if urgency == 'High':
+            steps.insert(0, "IMMEDIATE ACTION REQUIRED: Prioritize this complaint.")
+        
+        return common_steps + steps
+
     def classify(self, complaint_text: str) -> Dict:
         preprocessed = self.preprocess_text(complaint_text)
 
@@ -312,12 +381,16 @@ class ComplaintClassifier:
             final_dept = dept_keyword
             final_conf = conf_keyword
 
+        # Generate suggested steps
+        suggested_steps = self.get_suggested_steps(final_dept, urgency)
+
         return {
             'predictedDepartment': final_dept,
             'confidenceScore': round(final_conf, 2),
             'urgency': urgency,
             'keywords': keywords,
-            'sentiment': sentiment
+            'sentiment': sentiment,
+            'suggestedSteps': suggested_steps
         }
 
 classifier = ComplaintClassifier()

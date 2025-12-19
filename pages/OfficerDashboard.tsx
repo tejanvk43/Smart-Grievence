@@ -166,6 +166,24 @@ const OfficerDashboard: React.FC<Props> = ({ user }) => {
                       ))}
                     </div>
                  </div>
+
+                 {/* Suggested Steps */}
+                 {selectedComplaint.nlpAnalysis?.suggestedSteps && (
+                   <div className="col-span-1 md:col-span-3 p-4 bg-green-50 rounded-lg border border-green-100 mt-2">
+                      <div className="text-sm text-green-700 font-bold mb-2 flex items-center gap-2">
+                        <CheckCircle size={16} />
+                        Recommended Next Steps (AI)
+                      </div>
+                      <ul className="space-y-1">
+                        {selectedComplaint.nlpAnalysis.suggestedSteps.map((step, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                            <span className="mt-1 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>
+                            {step}
+                          </li>
+                        ))}
+                      </ul>
+                   </div>
+                 )}
                </div>
             </div>
 
