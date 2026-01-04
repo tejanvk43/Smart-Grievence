@@ -7,11 +7,32 @@
 [![React](https://img.shields.io/badge/React-19-blue)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.9+-green)](https://www.python.org/)
+[![Django](https://img.shields.io/badge/Django-5.0-green)](https://www.djangoproject.com/)
 [![Flask](https://img.shields.io/badge/Flask-3.0-black)](https://flask.palletsprojects.com/)
-[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green)](https://supabase.com/)
 [![NLP](https://img.shields.io/badge/NLP-scikit--learn-orange)](https://scikit-learn.org/)
 
 </div>
+
+## 🚀 Quick Start
+
+**One-command setup:**
+
+```bash
+# Windows
+setup_and_run.bat
+
+# Linux/Mac
+chmod +x setup_and_run.sh
+./setup_and_run.sh
+```
+
+Then open two terminals:
+- **Terminal 1:** `pnpm dev` (Frontend at http://localhost:3000)
+- **Terminal 2:** `cd backend_django && source venv/bin/activate && python manage.py runserver 0.0.0.0:5000`
+
+**📖 See [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for all commands**
+
+---
 
 ## What is Smart Griev?
 
@@ -58,48 +79,50 @@ Our Natural Language Processing (NLP) system analyzes complaint text and:
 ### Frontend
 - React 19 + TypeScript
 - Vite (fast builds)
-- TailwindCSS (styling)
-- Recharts (charts)
-- Supabase JS (auth/database)
+- TailwindCSS (styling via CDN)
+- Recharts (analytics charts)
 
-### Backend
-- Python Flask
+### Backend (Django - Recommended)
+- Django 5.0 + Django REST Framework
 - scikit-learn (ML)
 - NLTK + TextBlob (NLP)
-- spaCy (text processing)
-- Supabase (PostgreSQL)
-
-### Database
-- Supabase (PostgreSQL)
-- Row Level Security (RLS)
+- SQLite (easily swappable to PostgreSQL)
 - JWT authentication
-- Real-time subscriptions
+- Built-in admin panel
 
-## Quick Start
+### Backend (Flask - Alternative)
+- Flask 3.0
+- Raw SQLite queries
+- JWT authentication
 
-Get up and running in 10 minutes! See [QUICK_START.md](QUICK_START.md)
+### NLP Pipeline
+- scikit-learn (TF-IDF + Naive Bayes)
+- NLTK for tokenization
+- TextBlob for sentiment analysis
+- Hybrid classification approach
 
-```bash
-# Frontend
-npm install
-# Create .env with Supabase credentials
-npm run dev
+## 📚 Documentation
 
-# Backend (separate terminal)
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet')"
-# Create backend/.env with Supabase credentials
-python app.py
-```
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - ⭐ Commands and quick tips
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Complete setup instructions
+- **[MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md)** - What's fixed and changed
+- **[FLASK_VS_DJANGO.md](FLASK_VS_DJANGO.md)** - Backend comparison
+- **[backend_django/README.md](backend_django/README.md)** - Django backend docs
 
-## Documentation
+## 🔧 Recent Updates
 
-- **[QUICK_START.md](QUICK_START.md)** - Get running in 10 minutes
-- **[SETUP.md](SETUP.md)** - Detailed setup and configuration
-- **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** - Architecture and implementation details
+### ✅ Fixed: Styling Issue (Windows & Linux)
+- **Problem:** Styles wouldn't load due to missing CSS file reference
+- **Solution:** Removed broken link from index.html
+- **Status:** Fixed in latest version
+
+### ✅ New: Django Backend
+- **Complete Django migration** from Flask
+- **100% API compatible** - no frontend changes needed
+- **Added features:** Admin panel, ORM, migrations, better structure
+- **Both backends work** - choose Flask or Django
+
+See [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md) for details.
 
 ## How It Works
 
