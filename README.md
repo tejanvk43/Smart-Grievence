@@ -1,153 +1,89 @@
-# Smart Griev - AI-Powered Complaint Management System
+# Smart Griev - AI-Powered Grievance Management
 
-<div align="center">
+Intelligent complaint management system with NLP-based automatic department routing.
 
-**Intelligent Grievance Redressal Portal with NLP-based Automatic Department Routing**
-
-[![React](https://img.shields.io/badge/React-19-blue)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue)](https://www.typescriptlang.org/)
-[![Python](https://img.shields.io/badge/Python-3.9+-green)](https://www.python.org/)
-[![Django](https://img.shields.io/badge/Django-5.0-green)](https://www.djangoproject.com/)
-[![Flask](https://img.shields.io/badge/Flask-3.0-black)](https://flask.palletsprojects.com/)
-[![NLP](https://img.shields.io/badge/NLP-scikit--learn-orange)](https://scikit-learn.org/)
-
-</div>
-
-## 🚀 Quick Start
-
-**One-command setup:**
+## Quick Start
 
 ```bash
-# Windows
-setup_and_run.bat
+# Backend
+cd backend_django
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_db
+python manage.py runserver
 
-# Linux/Mac
-chmod +x setup_and_run.sh
-./setup_and_run.sh
+# Frontend (new terminal)
+pnpm install
+pnpm dev
 ```
 
-Then open two terminals:
-- **Terminal 1:** `pnpm dev` (Frontend at http://localhost:3000)
-- **Terminal 2:** `cd backend_django && source venv/bin/activate && python manage.py runserver 0.0.0.0:5000`
-
-**📖 See [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for all commands**
-
----
-
-## What is Smart Griev?
-
-Smart Griev is a complete, production-ready web application that revolutionizes how citizens interact with government services. Instead of navigating multiple portals and manually selecting departments, citizens simply describe their problem, and our AI automatically analyzes the text and routes the complaint to the correct government department.
-
-### The Problem We Solve
-
-- **Before**: Citizens must know which department handles their issue and navigate separate portals
-- **After**: ONE portal where AI figures out the department for you
-
-### Key Innovation
-
-Our Natural Language Processing (NLP) system analyzes complaint text and:
-- Classifies into 11 government departments
-- Detects urgency based on sentiment
-- Extracts relevant keywords
-- Provides confidence scores (typically 85-95%)
+**Default Admin:** admin@smartgriev.com / Admin@123
 
 ## Features
 
-### For Citizens
-- Submit complaints with natural language description
-- AI automatically routes to correct department
-- Real-time status tracking
-- View NLP analysis (confidence, keywords, urgency)
-- Mobile-responsive interface
+- **AI Department Routing** - NLP automatically assigns complaints to correct departments
+- **Role-Based Access** - Citizen, Officer, and Admin dashboards
+- **Real-Time Tracking** - Monitor complaint status and history
+- **Analytics Dashboard** - Department distribution and performance metrics
 
-### For Officers
-- Department-specific complaint queue
-- View AI insights (keywords, sentiment, priority)
-- Update complaint status
-- Add notes and comments
-- Track department performance
+## Tech Stack
 
-### For Admins
-- System-wide analytics dashboard
-- Monitor NLP model performance (92.4% accuracy)
-- View department distribution
-- Weekly trends and statistics
-- Complaint lifecycle management
+**Frontend:** React 19, TypeScript, Vite, TailwindCSS  
+**Backend:** Django 5.0, Django REST Framework, SQLite  
+**NLP:** scikit-learn, NLTK, TextBlob
 
-## Technology Stack
+## API Endpoints
 
-### Frontend
-- React 19 + TypeScript
-- Vite (fast builds)
-- TailwindCSS (styling via CDN)
-- Recharts (analytics charts)
+**Auth**
+- POST `/api/auth/register` - Register (citizens only)
+- POST `/api/auth/login` - Login
 
-### Backend (Django - Recommended)
-- Django 5.0 + Django REST Framework
-- scikit-learn (ML)
-- NLTK + TextBlob (NLP)
-- SQLite (easily swappable to PostgreSQL)
-- JWT authentication
-- Built-in admin panel
+**Complaints**
+- POST `/api/complaints/submit` - Submit complaint
+- GET `/api/complaints` - Get complaints (role-filtered)
+- PUT `/api/complaints/{id}/status` - Update status
 
-### Backend (Flask - Alternative)
-- Flask 3.0
-- Raw SQLite queries
-- JWT authentication
+**Admin**
+- POST `/api/admin/users` - Create officer account
+- GET `/api/analytics` - System statistics
+- GET `/api/departments` - Department list
 
-### NLP Pipeline
-- scikit-learn (TF-IDF + Naive Bayes)
-- NLTK for tokenization
-- TextBlob for sentiment analysis
-- Hybrid classification approach
+## Project Structure
 
-## 📚 Documentation
+```
+backend_django/     # Django backend
+├── api/           # Main API app
+│   ├── models.py  # Database models
+│   ├── views.py   # API endpoints
+│   └── nlp_classifier.py  # NLP logic
+pages/             # React pages
+├── LandingPage.tsx
+├── CitizenDashboard.tsx
+├── OfficerDashboard.tsx
+└── AdminDashboard.tsx
+services/          # API client
+└── api.ts
+```
 
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - ⭐ Commands and quick tips
-- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Complete setup instructions
-- **[MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md)** - What's fixed and changed
-- **[FLASK_VS_DJANGO.md](FLASK_VS_DJANGO.md)** - Backend comparison
-- **[backend_django/README.md](backend_django/README.md)** - Django backend docs
+## Development
 
-## 🔧 Recent Updates
+```bash
+# Run tests
+cd backend_django
+python manage.py test
 
-### ✅ Fixed: Styling Issue (Windows & Linux)
-- **Problem:** Styles wouldn't load due to missing CSS file reference
-- **Solution:** Removed broken link from index.html
-- **Status:** Fixed in latest version
+# Create migrations
+python manage.py makemigrations
 
-### ✅ New: Django Backend
-- **Complete Django migration** from Flask
-- **100% API compatible** - no frontend changes needed
-- **Added features:** Admin panel, ORM, migrations, better structure
-- **Both backends work** - choose Flask or Django
+# Access admin panel
+http://localhost:8000/admin
+```
 
-See [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md) for details.
+## Deployment
 
-## How It Works
-
-### NLP Classification Pipeline
-
-1. **Text Preprocessing**: Lowercasing, tokenization, stop word removal
-2. **Feature Extraction**: TF-IDF vectorization, keyword extraction
-3. **Classification**: Hybrid approach combining:
-   - Rule-based keyword matching (fast)
-   - Machine Learning (Naive Bayes with TF-IDF)
-   - Confidence scoring
-4. **Sentiment Analysis**: Urgency detection using TextBlob
-5. **Department Routing**: Automatic assignment with confidence score
-
-### Supported Departments
-
-1. Public Works & Infrastructure
-2. Water Supply & Sanitation
-3. Electricity & Power
-4. Transportation
-5. Health & Medical Services
-6. Education
-7. Police & Safety
-8. Revenue & Tax
-9. Environment & Pollution
+See `backend_django/README.md` for production deployment instructions.
 10. Consumer Affairs
 11. Others (fallback)
 

@@ -1,103 +1,45 @@
-# Smart Griev - Django Backend
+# Django Backend
 
-This is the Django backend for the Smart Griev complaint management system, migrated from Flask.
+Production-ready Django backend with NLP complaint classification.
 
-## Features
-
-- **Django REST Framework** for API endpoints
-- **SQLite** database (can be easily switched to PostgreSQL)
-- **JWT Authentication** for secure user sessions
-- **NLP-based Complaint Classification** using scikit-learn
-- **CORS enabled** for frontend integration
-
-## Project Structure
-
-```
-backend_django/
-├── smart_griev/          # Django project settings
-│   ├── settings.py       # Configuration
-│   ├── urls.py          # Main URL routing
-│   └── wsgi.py          # WSGI configuration
-├── api/                 # Main API app
-│   ├── models.py        # Database models
-│   ├── views.py         # API views/endpoints
-│   ├── serializers.py   # DRF serializers
-│   ├── urls.py          # API URL routing
-│   ├── auth.py          # JWT authentication utilities
-│   ├── utils.py         # Helper functions
-│   └── nlp_classifier.py # NLP classification logic
-├── manage.py            # Django management script
-└── requirements.txt     # Python dependencies
-```
-
-## Setup Instructions
-
-### 1. Create Virtual Environment
+## Setup
 
 ```bash
 cd backend_django
 python -m venv venv
-
-# On Windows:
-venv\Scripts\activate
-
-# On Linux/Mac:
-source venv/bin/activate
-```
-
-### 2. Install Dependencies
-
-```bash
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-### 3. Download NLTK Data
-
-```bash
-python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('punkt_tab')"
-```
-
-### 4. Create .env File (Optional)
-
-Create a `.env` file in the `backend_django` directory:
-
-```env
-SECRET_KEY=your-secret-key-here
-DJANGO_DEBUG=True
-```
-
-### 5. Run Migrations
-
-```bash
-python manage.py makemigrations
 python manage.py migrate
-```
-
-### 6. Seed Database
-
-```bash
 python manage.py seed_db
+python manage.py runserver
 ```
 
-### 7. Create Superuser (Optional)
+**Admin credentials:** admin@smartgriev.com / Admin@123
 
-```bash
-python manage.py createsuperuser
+## Project Structure
+
 ```
-
-### 8. Run Development Server
-
-```bash
-python manage.py runserver 0.0.0.0:5000
+api/
+├── models.py        # Database models
+├── views.py         # API endpoints  
+├── serializers.py   # Request/response validation
+├── auth.py          # JWT authentication
+└── nlp_classifier.py # NLP logic
 ```
-
-The backend will be available at `http://localhost:5000/`
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
+**Auth**
+- POST `/api/auth/register` - Register (citizens only)
+- POST `/api/auth/login` - Login
+
+**Complaints**
+- POST `/api/complaints/submit` - Submit complaint
+- GET `/api/complaints` - Get complaints
+- PUT `/api/complaints/{id}/status` - Update status
+
+**Admin**
+- POST `/api/admin/users` - Create officer
 
 ### Complaints
 - `POST /api/complaints/submit` - Submit new complaint
