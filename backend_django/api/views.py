@@ -41,6 +41,13 @@ def register(request):
     department = data.get('department', '')
     phone = data.get('phone', '')
     
+    # Block registration for ADMIN and OFFICER roles
+    if role in ['ADMIN', 'OFFICER']:
+        return Response({'error': 'Registration not allowed for admin or officer roles. Please contact system administrator.'}, status=status.HTTP_403_FORBIDDEN)
+    
+    # Force role to CITIZEN for public registration
+    role = 'CITIZEN'
+    
     # Check if user exists
     if User.objects.filter(email=email).exists():
         return Response({'error': 'User already exists'}, status=status.HTTP_400_BAD_REQUEST)
@@ -364,8 +371,9 @@ def get_departments(request):
     """Get all departments"""
     try:
         departments = Department.objects.all()
-        serializer = DepartmentSerializer(departments, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # Return array of department names
+        dept_names = [dept.name for dept in departments]
+        return Response(dept_names, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -447,6 +455,58 @@ def mark_notification_read(request, notification_id):
             return Response({'status': 'marked as read'}, status=status.HTTP_200_OK)
         else:
             return Response({'error': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@require_auth
+def create_officer(request):
+    """Create a new officer user (Admin only)"""
+    user = request.user_obj
+    
+    # Check if user is admin
+    if user.role != 'ADMIN':
+        return Response({'error': 'Only administrators can create officer accounts'}, status=status.HTTP_403_FORBIDDEN)
+    
+    data = request.data
+    email = data.get('email')
+    password = data.get('password')
+    name = data.get('name')
+    department = data.get('department')
+    phone = data.get('phone', '')
+    
+    # Validation
+    if not all([email, password, name, department]):
+        return Response({'error': 'Email, password, name, and department are required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if user exists
+    if User.objects.filter(email=email).exists():
+        return Response({'error': 'User with this email already exists'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Hash password
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Create officer
+        officer = User.objects.create(
+            email=email,
+            password_hash=hashed,
+            name=name,
+            role='OFFICER',
+            phone=phone,
+            department=department
+        )
+        
+        return Response({
+            'id': str(officer.id),
+            'email': officer.email,
+            'name': officer.name,
+            'role': officer.role,
+            'department': officer.department,
+            'phone': officer.phone
+        }, status=status.HTTP_201_CREATED)
     
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

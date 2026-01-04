@@ -2,10 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { DashboardStats } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Users, FileText, CheckSquare, Activity } from 'lucide-react';
+import { Users, FileText, CheckSquare, Activity, UserPlus, X } from 'lucide-react';
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [showOfficerModal, setShowOfficerModal] = useState(false);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [officerForm, setOfficerForm] = useState({
+    email: '',
+    password: '',
+    name: '',
+    department: '',
+    phone: ''
+  });
+  const [formMessage, setFormMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -14,6 +24,35 @@ const AdminDashboard: React.FC = () => {
     };
     fetchStats();
   }, []);
+
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        const depts = await api.getDepartments();
+        setDepartments(depts);
+      } catch (error) {
+        console.error('Failed to fetch departments:', error);
+      }
+    };
+    fetchDepartments();
+  }, []);
+
+  const handleCreateOfficer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormMessage({ type: '', text: '' });
+
+    try {
+      await api.createOfficer(officerForm);
+      setFormMessage({ type: 'success', text: 'Officer created successfully!' });
+      setOfficerForm({ email: '', password: '', name: '', department: '', phone: '' });
+      setTimeout(() => {
+        setShowOfficerModal(false);
+        setFormMessage({ type: '', text: '' });
+      }, 2000);
+    } catch (error: any) {
+      setFormMessage({ type: 'error', text: error.message || 'Failed to create officer' });
+    }
+  };
 
   // Mock data for charts
   const deptData = [
@@ -38,7 +77,16 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">System Overview</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">System Overview</h1>
+        <button
+          onClick={() => setShowOfficerModal(true)}
+          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          <UserPlus size={20} />
+          Create Officer
+        </button>
+      </div>
       
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -140,6 +188,120 @@ const AdminDashboard: React.FC = () => {
         </div>
         <div className="text-4xl font-bold text-green-400">92.4%</div>
       </div>
+
+      {/* Create Officer Modal */}
+      {showOfficerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Create Officer Account</h2>
+              <button
+                onClick={() => {
+                  setShowOfficerModal(false);
+                  setFormMessage({ type: '', text: '' });
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOfficer} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={officerForm.name}
+                  onChange={(e) => setOfficerForm({ ...officerForm, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="John Doe"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  value={officerForm.email}
+                  onChange={(e) => setOfficerForm({ ...officerForm, email: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="officer@department.gov"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                <input
+                  type="password"
+                  required
+                  value={officerForm.password}
+                  onChange={(e) => setOfficerForm({ ...officerForm, password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="Minimum 8 characters"
+                  minLength={8}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                <select
+                  required
+                  value={officerForm.department}
+                  onChange={(e) => setOfficerForm({ ...officerForm, department: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                >
+                  <option value="">Select Department</option>
+                  {departments.map((dept) => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={officerForm.phone}
+                  onChange={(e) => setOfficerForm({ ...officerForm, phone: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="+1 (555) 000-0000"
+                />
+              </div>
+
+              {formMessage.text && (
+                <div className={`p-3 rounded-lg text-sm ${
+                  formMessage.type === 'success' 
+                    ? 'bg-green-50 text-green-800' 
+                    : 'bg-red-50 text-red-800'
+                }`}>
+                  {formMessage.text}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOfficerModal(false);
+                    setFormMessage({ type: '', text: '' });
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  Create Officer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

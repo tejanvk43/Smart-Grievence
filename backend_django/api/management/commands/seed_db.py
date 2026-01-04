@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
-from api.models import Department
+from api.models import Department, User
+import bcrypt
 
 
 class Command(BaseCommand):
@@ -29,5 +30,22 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f'Created department: {dept_name}'))
             else:
                 self.stdout.write(f'Department already exists: {dept_name}')
+        
+        # Create default admin user
+        admin_email = 'admin@smartgriev.com'
+        if not User.objects.filter(email=admin_email).exists():
+            hashed = bcrypt.hashpw('Admin@123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            User.objects.create(
+                email=admin_email,
+                password_hash=hashed,
+                name='System Administrator',
+                role='ADMIN',
+                phone=''
+            )
+            self.stdout.write(self.style.SUCCESS(f'Created admin user: {admin_email}'))
+            self.stdout.write(self.style.SUCCESS('  Email: admin@smartgriev.com'))
+            self.stdout.write(self.style.SUCCESS('  Password: Admin@123'))
+        else:
+            self.stdout.write(f'Admin user already exists: {admin_email}')
         
         self.stdout.write(self.style.SUCCESS('Database seeding completed!'))

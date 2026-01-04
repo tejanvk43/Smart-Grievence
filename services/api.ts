@@ -247,5 +247,25 @@ export const api = {
     }
 
     return await response.json();
+  },
+
+  createOfficer: async (userData: { email: string; password: string; name: string; department: string; phone?: string }): Promise<any> => {
+    const headers = getAuthHeaders();
+
+    const response = await fetch(`${API_URL}/admin/users`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      } as any,
+      body: JSON.stringify(userData)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create officer');
+    }
+
+    return await response.json();
   }
 };

@@ -27,4 +27,7 @@ urlpatterns = [
     # Notifications
     path('notifications', views.get_notifications, name='get_notifications'),
     path('notifications/<int:notification_id>/read', views.mark_notification_read, name='mark_notification_read'),
+    
+    # Admin
+    path('admin/users', views.create_officer, name='create_officer'),
 ]

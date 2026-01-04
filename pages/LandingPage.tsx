@@ -119,6 +119,7 @@ const LandingPage: React.FC<Props> = ({ onAuthSuccess }) => {
                     className={`text-sm font-medium py-2 rounded-md transition-all capitalize ${
                       role === r ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
+                    disabled={isRegistering}
                   >
                     {r.toLowerCase()}
                   </button>
