@@ -5,7 +5,7 @@ from django.db import transaction
 import bcrypt
 import datetime
 
-from .models import User, Complaint, ComplaintHistory, Notification, Department
+from .errors import StandardError, ERROR_CODES
 from .serializers import (
     UserSerializer, ComplaintSerializer, ComplaintHistorySerializer,
     NotificationSerializer, DepartmentSerializer, RegisterSerializer,
@@ -31,7 +31,7 @@ def register(request):
     """Register a new user"""
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.validation_error(serializer.errors)
     
     data = serializer.validated_data
     email = data.get('email')
@@ -43,18 +43,24 @@ def register(request):
     
     # Block registration for ADMIN and OFFICER roles
     if role in ['ADMIN', 'OFFICER']:
-        return Response({'error': 'Registration not allowed for admin or officer roles. Please contact system administrator.'}, status=status.HTTP_403_FORBIDDEN)
+        return StandardError.permission_error(
+            message='Registration not allowed for admin or officer roles. Please contact system administrator.'
+        )
     
     # Force role to CITIZEN for public registration
     role = 'CITIZEN'
     
     # Check if user exists
     if User.objects.filter(email=email).exists():
-        return Response({'error': 'User already exists'}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.error_response(
+            message=ERROR_CODES['USER_EXISTS'],
+            error_code='USER_EXISTS',
+            status_code=status.HTTP_409_CONFLICT
+        )
     
     try:
-        # Hash password
-        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        # Hash password with increased cost factor (security improvement)
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
         
         # Create user
         user = User.objects.create(
@@ -69,21 +75,28 @@ def register(request):
         # Generate token
         token = generate_token(user)
         
-        return Response({
-            'user': {
-                'id': str(user.id),
-                'email': user.email,
-                'name': user.name,
-                'role': user.role,
-                'department': user.department
+        return StandardError.success_response(
+            data={
+                'user': {
+                    'id': str(user.id),
+                    'email': user.email,
+                    'name': user.name,
+                    'role': user.role,
+                    'department': user.department
+                },
+                'session': {
+                    'access_token': token
+                }
             },
-            'session': {
-                'access_token': token
-            }
-        }, status=status.HTTP_201_CREATED)
+            message='User registered successfully',
+            status_code=status.HTTP_201_CREATED
+        )
     
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return StandardError.server_error(
+            message='Registration failed',
+            details={'error': str(e)}
+        )
 
 
 @api_view(['POST'])
@@ -91,7 +104,7 @@ def login(request):
     """Login user"""
     serializer = LoginSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.validation_error(serializer.errors)
     
     email = serializer.validated_data.get('email')
     password = serializer.validated_data.get('password')
@@ -102,35 +115,39 @@ def login(request):
         if user and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
             token = generate_token(user)
             
-            return Response({
-                'user': {
-                    'id': str(user.id),
-                    'email': user.email,
-                    'name': user.name,
-                    'phone': user.phone,
-                    'role': user.role,
-                    'department': user.department
+            return StandardError.success_response(
+                data={
+                    'user': {
+                        'id': str(user.id),
+                        'email': user.email,
+                        'name': user.name,
+                        'phone': user.phone,
+                        'role': user.role,
+                        'department': user.department
+                    },
+                    'session': {
+                        'access_token': token
+                    }
                 },
-                'session': {
-                    'access_token': token
-                }
-            }, status=status.HTTP_200_OK)
+                message='Login successful'
+            )
         else:
-            return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+            return StandardError.auth_error(
+                message=ERROR_CODES['INVALID_CREDENTIALS']
+            )
     
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['POST'])
-@require_auth
+        return StandardError.server_error(
+            message='Login failed',
+            details={'error': str(e)}
+        )
 def submit_complaint(request):
-    """Submit a new complaint"""
+    """Submit a new complaint with multi-department routing support"""
     user = request.user_obj
     
     serializer = ComplaintSubmitSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.validation_error(serializer.errors)
     
     data = serializer.validated_data
     title = data.get('title')
@@ -139,9 +156,14 @@ def submit_complaint(request):
     
     try:
         with transaction.atomic():
-            # Classify complaint using NLP
-            nlp_result = classifier.classify(description)
+            # Classify complaint using NLP (with multi-department support)
+            nlp_result = classifier.classify_multi_department(description)
             complaint_id = generate_complaint_id()
+            
+            # Extract multi-department info
+            primary_department = nlp_result['predictedDepartment']
+            all_departments = nlp_result.get('departments', [primary_department])
+            is_multi_routing = nlp_result.get('multiDepartmentRouting', False)
             
             # Create complaint
             complaint = Complaint.objects.create(
@@ -151,7 +173,9 @@ def submit_complaint(request):
                 description=description,
                 location=location,
                 status='Submitted',
-                department=nlp_result['predictedDepartment'],
+                department=primary_department,
+                primary_department=primary_department,
+                departments=all_departments,
                 priority=nlp_result['urgency'],
                 confidence_score=nlp_result['confidenceScore'],
                 nlp_analysis=nlp_result
@@ -164,15 +188,16 @@ def submit_complaint(request):
                 action='Complaint Submitted',
                 status_from=None,
                 status_to='Submitted',
-                comment='Initial complaint submission'
+                comment=f'Complaint routed to: {", ".join(all_departments)}'
             )
             
-            # Create notification
+            # Create notification with multi-department info
+            dept_message = f'{len(all_departments)} departments' if is_multi_routing else primary_department
             Notification.objects.create(
                 user=user,
                 complaint=complaint,
                 type='complaint_submitted',
-                message=f'Your complaint {complaint_id} has been submitted and routed to {nlp_result["predictedDepartment"]}'
+                message=f'Your complaint {complaint_id} has been submitted and routed to {dept_message}'
             )
             
             response_data = {
@@ -183,6 +208,9 @@ def submit_complaint(request):
                 'location': complaint.location,
                 'status': complaint.status,
                 'department': complaint.department,
+                'departments': all_departments,
+                'primaryDepartment': primary_department,
+                'multiDepartmentRouting': is_multi_routing,
                 'priority': complaint.priority,
                 'confidence_score': complaint.confidence_score,
                 'nlp_analysis': complaint.nlp_analysis,
@@ -191,10 +219,20 @@ def submit_complaint(request):
                 'userName': user.name
             }
             
-            return Response(response_data, status=status.HTTP_201_CREATED)
+            return StandardError.success_response(
+                data=response_data,
+                message='Complaint submitted successfully',
+                status_code=status.HTTP_201_CREATED
+            )
     
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Error submitting complaint")
+        return StandardError.server_error(
+            message='Failed to submit complaint',
+            details={'error': str(e)}
+        )
 
 
 @api_view(['GET'])

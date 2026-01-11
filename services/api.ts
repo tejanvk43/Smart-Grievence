@@ -2,6 +2,19 @@ import { Complaint, ComplaintStatus, Department, User, UserRole, DashboardStats 
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+// Retry configuration
+interface RetryConfig {
+  maxRetries: number;
+  retryableStatuses: number[];
+  baseDelay: number;
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  retryableStatuses: [408, 429, 500, 502, 503, 504],
+  baseDelay: 1000
+};
+
 export const getAuthToken = (): string | null => {
   return localStorage.getItem('token');
 };
@@ -14,9 +27,49 @@ const getAuthHeaders = () => {
   };
 };
 
+/**
+ * Fetch with exponential backoff retry logic
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  config: RetryConfig = DEFAULT_RETRY_CONFIG
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // Don't retry on success or client errors (4xx), except for rate limiting
+      if (response.ok || (response.status >= 400 && response.status < 500 && response.status !== 429)) {
+        return response;
+      }
+      
+      // Retry on server errors and rate limiting
+      if (config.retryableStatuses.includes(response.status) && attempt < config.maxRetries) {
+        const delay = config.baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < config.maxRetries) {
+        const delay = config.baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
 export const api = {
   login: async (email: string, password: string): Promise<User> => {
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetchWithRetry(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -25,24 +78,30 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Login failed');
+      const error = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        throw new Error(error.message || 'Invalid email or password');
+      }
+      throw new Error(error.message || 'Login failed');
     }
 
     const data = await response.json();
 
     // Store token
-    if (data.session?.access_token) {
+    if (data.data?.session?.access_token) {
+      localStorage.setItem('token', data.data.session.access_token);
+    } else if (data.session?.access_token) {
       localStorage.setItem('token', data.session.access_token);
     }
 
+    const userData = data.data?.user || data.user;
     return {
-      id: data.user.id,
-      name: data.user.name,
-      email: data.user.email,
-      phone: data.user.phone,
-      role: data.user.role as UserRole,
-      department: data.user.department || undefined
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone,
+      role: userData.role as UserRole,
+      department: userData.department || undefined
     };
   },
 
@@ -56,7 +115,7 @@ export const api = {
       department: role === UserRole.OFFICER ? department : undefined
     };
 
-    const response = await fetch(`${API_URL}/auth/register`, {
+    const response = await fetchWithRetry(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -65,24 +124,30 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Registration failed');
+      const error = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        throw new Error('User already exists');
+      }
+      throw new Error(error.message || 'Registration failed');
     }
 
     const data = await response.json();
 
     // Store token
-    if (data.session?.access_token) {
+    if (data.data?.session?.access_token) {
+      localStorage.setItem('token', data.data.session.access_token);
+    } else if (data.session?.access_token) {
       localStorage.setItem('token', data.session.access_token);
     }
 
+    const userData = data.data?.user || data.user;
     return {
-      id: data.user.id,
-      name: data.user.name,
-      email: data.user.email,
-      phone: data.user.phone,
-      role: data.user.role as UserRole,
-      department: data.user.department || undefined
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone,
+      role: userData.role as UserRole,
+      department: userData.department || undefined
     };
   },
 
@@ -97,7 +162,7 @@ export const api = {
   ): Promise<Complaint> => {
     const headers = getAuthHeaders();
 
-    const response = await fetch(`${API_URL}/complaints/submit`, {
+    const response = await fetchWithRetry(`${API_URL}/complaints/submit`, {
       method: 'POST',
       headers: headers as any,
       body: JSON.stringify({
@@ -108,32 +173,33 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to submit complaint');
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Failed to submit complaint');
     }
 
     const data = await response.json();
+    const complaintData_ = data.data || data;
 
     return {
-      id: data.id,
-      userId: data.user_id,
-      userName: data.userName || user.name,
-      title: data.title,
-      description: data.description,
-      location: data.location,
-      status: data.status as ComplaintStatus,
-      department: data.department as Department,
-      dateSubmitted: data.date_submitted,
-      dateUpdated: data.date_updated,
-      priority: data.priority as 'Low' | 'Medium' | 'High',
+      id: complaintData_.id,
+      userId: complaintData_.user_id,
+      userName: complaintData_.userName || user.name,
+      title: complaintData_.title,
+      description: complaintData_.description,
+      location: complaintData_.location,
+      status: complaintData_.status as ComplaintStatus,
+      department: complaintData_.department as Department,
+      dateSubmitted: complaintData_.date_submitted,
+      dateUpdated: complaintData_.date_updated,
+      priority: complaintData_.priority as 'Low' | 'Medium' | 'High',
       attachments: complaintData.attachments || [],
-      nlpAnalysis: data.nlp_analysis ? {
-        predictedDepartment: data.nlp_analysis.predictedDepartment as Department,
-        confidenceScore: data.nlp_analysis.confidenceScore,
-        urgency: data.nlp_analysis.urgency,
-        keywords: data.nlp_analysis.keywords,
-        sentiment: data.nlp_analysis.sentiment,
-        suggestedSteps: data.nlp_analysis.suggestedSteps
+      nlpAnalysis: complaintData_.nlp_analysis ? {
+        predictedDepartment: complaintData_.nlp_analysis.predictedDepartment as Department,
+        confidenceScore: complaintData_.nlp_analysis.confidenceScore,
+        urgency: complaintData_.nlp_analysis.urgency,
+        keywords: complaintData_.nlp_analysis.keywords,
+        sentiment: complaintData_.nlp_analysis.sentiment,
+        suggestedSteps: complaintData_.nlp_analysis.suggestedSteps
       } : undefined
     };
   },
@@ -141,7 +207,7 @@ export const api = {
   getComplaints: async (role: UserRole, department?: Department): Promise<Complaint[]> => {
     const headers = getAuthHeaders();
 
-    const response = await fetch(`${API_URL}/complaints`, {
+    const response = await fetchWithRetry(`${API_URL}/complaints`, {
       method: 'GET',
       headers: headers as any
     });
@@ -155,8 +221,9 @@ export const api = {
     }
 
     const data = await response.json();
+    const complaintsArray = data.data || data;
 
-    return data.map((item: any) => ({
+    return complaintsArray.map((item: any) => ({
       id: item.id,
       userId: item.user_id,
       userName: item.userName || 'Unknown User',
@@ -186,7 +253,7 @@ export const api = {
   ): Promise<Complaint | undefined> => {
     const headers = getAuthHeaders();
 
-    const response = await fetch(`${API_URL}/complaints/${id}/status`, {
+    const response = await fetchWithRetry(`${API_URL}/complaints/${id}/status`, {
       method: 'PUT',
       headers: headers as any,
       body: JSON.stringify({ status })
@@ -197,27 +264,28 @@ export const api = {
     }
 
     const data = await response.json();
+    const complaintData_ = data.data || data;
 
     return {
-      id: data.id,
-      userId: data.user_id,
-      userName: data.userName || 'Unknown User',
-      title: data.title,
-      description: data.description,
-      location: data.location,
-      status: data.status as ComplaintStatus,
-      department: data.department as Department,
-      dateSubmitted: data.date_submitted,
-      dateUpdated: data.date_updated,
-      priority: data.priority as 'Low' | 'Medium' | 'High',
+      id: complaintData_.id,
+      userId: complaintData_.user_id,
+      userName: complaintData_.userName || 'Unknown User',
+      title: complaintData_.title,
+      description: complaintData_.description,
+      location: complaintData_.location,
+      status: complaintData_.status as ComplaintStatus,
+      department: complaintData_.department as Department,
+      dateSubmitted: complaintData_.date_submitted,
+      dateUpdated: complaintData_.date_updated,
+      priority: complaintData_.priority as 'Low' | 'Medium' | 'High',
       attachments: [],
-      nlpAnalysis: data.nlp_analysis ? {
-        predictedDepartment: data.nlp_analysis.predictedDepartment as Department,
-        confidenceScore: data.nlp_analysis.confidenceScore,
-        urgency: data.nlp_analysis.urgency,
-        keywords: data.nlp_analysis.keywords,
-        sentiment: data.nlp_analysis.sentiment,
-        suggestedSteps: data.nlp_analysis.suggestedSteps
+      nlpAnalysis: complaintData_.nlp_analysis ? {
+        predictedDepartment: complaintData_.nlp_analysis.predictedDepartment as Department,
+        confidenceScore: complaintData_.nlp_analysis.confidenceScore,
+        urgency: complaintData_.nlp_analysis.urgency,
+        keywords: complaintData_.nlp_analysis.keywords,
+        sentiment: complaintData_.nlp_analysis.sentiment,
+        suggestedSteps: complaintData_.nlp_analysis.suggestedSteps
       } : undefined
     };
   },
@@ -225,7 +293,7 @@ export const api = {
   getStats: async (): Promise<DashboardStats> => {
     const headers = getAuthHeaders();
 
-    const response = await fetch(`${API_URL}/analytics`, {
+    const response = await fetchWithRetry(`${API_URL}/analytics`, {
       method: 'GET',
       headers: headers as any
     });
@@ -234,11 +302,12 @@ export const api = {
       throw new Error('Failed to fetch stats');
     }
 
-    return await response.json();
+    const data = await response.json();
+    return data.data || data;
   },
 
   getDepartments: async (): Promise<any[]> => {
-    const response = await fetch(`${API_URL}/departments`, {
+    const response = await fetchWithRetry(`${API_URL}/departments`, {
       method: 'GET'
     });
 
@@ -246,13 +315,14 @@ export const api = {
       throw new Error('Failed to fetch departments');
     }
 
-    return await response.json();
+    const data = await response.json();
+    return data.data || data;
   },
 
   createOfficer: async (userData: { email: string; password: string; name: string; department: string; phone?: string }): Promise<any> => {
     const headers = getAuthHeaders();
 
-    const response = await fetch(`${API_URL}/admin/users`, {
+    const response = await fetchWithRetry(`${API_URL}/admin/users`, {
       method: 'POST',
       headers: {
         ...headers,
@@ -262,10 +332,11 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to create officer');
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Failed to create officer');
     }
 
-    return await response.json();
+    const data = await response.json();
+    return data.data || data;
   }
 };

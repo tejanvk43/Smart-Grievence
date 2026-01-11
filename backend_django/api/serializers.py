@@ -44,12 +44,20 @@ class ComplaintSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
-    name = serializers.CharField()
+    email = serializers.EmailField(max_length=255)
+    password = serializers.CharField(write_only=True, min_length=8, max_length=128)
+    name = serializers.CharField(min_length=2, max_length=255)
     role = serializers.ChoiceField(choices=['CITIZEN', 'OFFICER', 'ADMIN'], default='CITIZEN')
-    department = serializers.CharField(required=False, allow_blank=True)
-    phone = serializers.CharField(required=False, allow_blank=True)
+    department = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    
+    def validate_password(self, value):
+        """Validate password strength"""
+        if not any(c.isupper() for c in value):
+            raise serializers.ValidationError("Password must contain at least one uppercase letter.")
+        if not any(c.isdigit() for c in value):
+            raise serializers.ValidationError("Password must contain at least one digit.")
+        return value
 
 
 class LoginSerializer(serializers.Serializer):
@@ -58,14 +66,14 @@ class LoginSerializer(serializers.Serializer):
 
 
 class ComplaintSubmitSerializer(serializers.Serializer):
-    title = serializers.CharField()
-    description = serializers.CharField()
-    location = serializers.CharField()
+    title = serializers.CharField(min_length=5, max_length=255)
+    description = serializers.CharField(min_length=10, max_length=5000)
+    location = serializers.CharField(min_length=3, max_length=255)
 
 
 class StatusUpdateSerializer(serializers.Serializer):
-    status = serializers.CharField()
-    comment = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(max_length=50)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=1000)
 
 
 class ClassifyTextSerializer(serializers.Serializer):

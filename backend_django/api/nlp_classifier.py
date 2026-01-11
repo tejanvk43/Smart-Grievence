@@ -351,44 +351,89 @@ class ComplaintClassifier:
         
         return common_steps + steps
 
-    def classify(self, complaint_text: str) -> Dict:
+    def classify_multi_department(self, complaint_text: str, confidence_threshold: float = 0.5) -> Dict:
+        """
+        Classify complaint and identify ALL relevant departments
+        Returns multi-department routing if multiple departments have high confidence
+        """
         preprocessed = self.preprocess_text(complaint_text)
-
-        dept_keyword, conf_keyword = self.keyword_based_classify(complaint_text)
-
+        text_lower = complaint_text.lower()
+        
+        # Score each department
+        dept_scores = {}
+        for dept, keywords in self.departments.items():
+            score = 0
+            for keyword in keywords:
+                if keyword in text_lower:
+                    score += text_lower.count(keyword)
+            dept_scores[dept] = score
+        
+        # Get ML predictions if available
+        ml_scores = {}
+        try:
+            if self.model:
+                proba = self.model.predict_proba([preprocessed])[0]
+                classes = self.model.classes_
+                for class_idx, class_name in enumerate(classes):
+                    ml_scores[class_name] = float(proba[class_idx])
+        except:
+            pass
+        
+        # Combine scores (60% keyword-based, 40% ML-based)
+        combined_scores = {}
+        total_keyword_score = sum(dept_scores.values()) or 1
+        
+        for dept in self.departments.keys():
+            keyword_weight = (dept_scores.get(dept, 0) / total_keyword_score) * 0.6
+            ml_weight = ml_scores.get(dept, 0) * 0.4
+            combined_scores[dept] = keyword_weight + ml_weight
+        
+        # Find departments above threshold
+        qualifying_depts = [
+            (dept, score) for dept, score in combined_scores.items() 
+            if score >= confidence_threshold
+        ]
+        
+        # Sort by score descending
+        qualifying_depts.sort(key=lambda x: x[1], reverse=True)
+        
+        # Always include top department, even if below threshold
+        if not qualifying_depts and combined_scores:
+            top_dept = max(combined_scores.items(), key=lambda x: x[1])
+            qualifying_depts = [top_dept]
+        
         urgency, urgency_conf = self.determine_urgency(complaint_text)
         keywords = self.extract_keywords(complaint_text)
         sentiment = self.analyze_sentiment(complaint_text)
-
-        try:
-            if self.model:
-                dept_ml = self.model.predict([preprocessed])[0]
-                proba = self.model.predict_proba([preprocessed])[0]
-                conf_ml = float(max(proba))
-
-                if conf_ml > conf_keyword:
-                    final_dept = dept_ml
-                    final_conf = conf_ml
-                else:
-                    final_dept = dept_keyword
-                    final_conf = conf_keyword
-            else:
-                final_dept = dept_keyword
-                final_conf = conf_keyword
-        except:
-            final_dept = dept_keyword
-            final_conf = conf_keyword
-
-        # Generate suggested steps
-        suggested_steps = self.get_suggested_steps(final_dept, urgency)
-
+        
+        # Primary department is the top scored one
+        primary_dept = qualifying_depts[0][0] if qualifying_depts else 'Others'
+        primary_confidence = qualifying_depts[0][1] if qualifying_depts else 0.5
+        
+        # All departments for multi-routing
+        departments_list = [dept for dept, _ in qualifying_depts]
+        department_details = [
+            {'department': dept, 'confidence': round(conf, 2)} 
+            for dept, conf in qualifying_depts
+        ]
+        
+        # Generate suggested steps for primary department
+        suggested_steps = self.get_suggested_steps(primary_dept, urgency)
+        
         return {
-            'predictedDepartment': final_dept,
-            'confidenceScore': round(final_conf, 2),
+            'predictedDepartment': primary_dept,
+            'confidenceScore': round(primary_confidence, 2),
+            'departments': departments_list,
+            'departmentDetails': department_details,
+            'multiDepartmentRouting': len(departments_list) > 1,
             'urgency': urgency,
             'keywords': keywords,
             'sentiment': sentiment,
             'suggestedSteps': suggested_steps
         }
+    
+    def classify(self, complaint_text: str) -> Dict:
+        """Legacy classify method - uses single department mode"""
+        return self.classify_multi_department(complaint_text, confidence_threshold=0.6)
 
 classifier = ComplaintClassifier()

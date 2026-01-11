@@ -56,20 +56,35 @@ class Complaint(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField()
     location = models.CharField(max_length=255)
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Submitted')
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Submitted', db_index=True)
     department = models.CharField(max_length=255, blank=True, null=True)
+    # Support multiple departments as JSON array
+    departments = models.JSONField(default=list, blank=True, help_text="List of departments this complaint is routed to")
+    primary_department = models.CharField(max_length=255, blank=True, null=True, help_text="Primary/main department")
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, blank=True, null=True)
     confidence_score = models.FloatField(blank=True, null=True)
+    # NLP analysis with multi-department routing info
     nlp_analysis = models.JSONField(blank=True, null=True)
-    date_submitted = models.DateTimeField(auto_now_add=True)
+    date_submitted = models.DateTimeField(auto_now_add=True, db_index=True)
     date_updated = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'complaints'
         ordering = ['-date_submitted']
+        indexes = [
+            models.Index(fields=['user', '-date_submitted']),
+            models.Index(fields=['status', '-date_submitted']),
+            models.Index(fields=['primary_department', 'status']),
+        ]
     
     def __str__(self):
         return f"{self.id} - {self.title}"
+    
+    def get_departments_list(self):
+        """Get list of departments for this complaint"""
+        if isinstance(self.departments, list):
+            return self.departments
+        return [self.primary_department] if self.primary_department else []
 
 
 class ComplaintHistory(models.Model):
