@@ -34,7 +34,8 @@ class Command(BaseCommand):
         # Create default admin user
         admin_email = 'admin@smartgriev.com'
         if not User.objects.filter(email=admin_email).exists():
-            hashed = bcrypt.hashpw('Admin@123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            # Use same bcrypt rounds as registration (12)
+            hashed = bcrypt.hashpw('Admin@123'.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
             User.objects.create(
                 email=admin_email,
                 password_hash=hashed,

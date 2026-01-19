@@ -5,6 +5,7 @@ from django.db import transaction
 import bcrypt
 import datetime
 
+from .models import User, Department, Complaint, ComplaintHistory, Notification
 from .errors import StandardError, ERROR_CODES
 from .serializers import (
     UserSerializer, ComplaintSerializer, ComplaintHistorySerializer,
@@ -141,6 +142,10 @@ def login(request):
             message='Login failed',
             details={'error': str(e)}
         )
+
+
+@api_view(['POST'])
+@require_auth
 def submit_complaint(request):
     """Submit a new complaint with multi-department routing support"""
     user = request.user_obj
@@ -498,16 +503,35 @@ def mark_notification_read(request, notification_id):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['POST'])
+@api_view(['POST', 'GET'])
 @require_auth
 def create_officer(request):
-    """Create a new officer user (Admin only)"""
+    """Create a new officer user or get all users (Admin only)"""
     user = request.user_obj
     
     # Check if user is admin
     if user.role != 'ADMIN':
-        return Response({'error': 'Only administrators can create officer accounts'}, status=status.HTTP_403_FORBIDDEN)
+        return StandardError.permission_error('Only administrators can manage officer accounts')
     
+    # GET - List all users
+    if request.method == 'GET':
+        try:
+            users = User.objects.all().order_by('-created_at')
+            users_data = [{
+                'id': str(u.id),
+                'email': u.email,
+                'name': u.name,
+                'role': u.role,
+                'department': u.department,
+                'phone': u.phone,
+                'created_at': u.created_at.isoformat() if u.created_at else None
+            } for u in users]
+            
+            return StandardError.success_response(data=users_data)
+        except Exception as e:
+            return StandardError.server_error(message='Failed to fetch users', details={'error': str(e)})
+    
+    # POST - Create officer
     data = request.data
     email = data.get('email')
     password = data.get('password')
@@ -517,15 +541,19 @@ def create_officer(request):
     
     # Validation
     if not all([email, password, name, department]):
-        return Response({'error': 'Email, password, name, and department are required'}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.validation_error({'message': 'Email, password, name, and department are required'})
     
     # Check if user exists
     if User.objects.filter(email=email).exists():
-        return Response({'error': 'User with this email already exists'}, status=status.HTTP_400_BAD_REQUEST)
+        return StandardError.error_response(
+            message='User with this email already exists',
+            error_code='USER_EXISTS',
+            status_code=status.HTTP_409_CONFLICT
+        )
     
     try:
-        # Hash password
-        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        # Hash password with bcrypt (12 rounds)
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
         
         # Create officer
         officer = User.objects.create(
@@ -537,14 +565,18 @@ def create_officer(request):
             department=department
         )
         
-        return Response({
-            'id': str(officer.id),
-            'email': officer.email,
-            'name': officer.name,
-            'role': officer.role,
-            'department': officer.department,
-            'phone': officer.phone
-        }, status=status.HTTP_201_CREATED)
+        return StandardError.success_response(
+            data={
+                'id': str(officer.id),
+                'email': officer.email,
+                'name': officer.name,
+                'role': officer.role,
+                'department': officer.department,
+                'phone': officer.phone
+            },
+            message='Officer created successfully',
+            status_code=status.HTTP_201_CREATED
+        )
     
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return StandardError.server_error(message='Failed to create officer', details={'error': str(e)})

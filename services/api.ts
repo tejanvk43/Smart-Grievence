@@ -1,6 +1,30 @@
 import { Complaint, ComplaintStatus, Department, User, UserRole, DashboardStats } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Detect environment and set appropriate API URL
+function getApiUrl(): string {
+  // Check if explicitly set in env
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // Check if running in GitHub Codespaces
+  const hostname = window.location.hostname;
+  if (hostname.includes('github.dev') || hostname.includes('app.github.dev')) {
+    // In Codespaces, construct the backend URL using the same domain but different port
+    // Frontend runs on one port, backend on 8000
+    const protocol = window.location.protocol;
+    const baseUrl = hostname.replace(/-\d+\./, '-8000.');
+    return `${protocol}//${baseUrl}/api`;
+  }
+  
+  // Default to localhost
+  return 'http://localhost:8000/api';
+}
+
+const API_URL = getApiUrl();
+
+// Log API URL for debugging
+console.log('🔗 API URL:', API_URL);
 
 // Retry configuration
 interface RetryConfig {
@@ -317,6 +341,32 @@ export const api = {
 
     const data = await response.json();
     return data.data || data;
+  },
+
+  getAllUsers: async (): Promise<User[]> => {
+    const headers = getAuthHeaders();
+
+    const response = await fetchWithRetry(`${API_URL}/admin/users`, {
+      method: 'GET',
+      headers: headers as any
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+
+    const data = await response.json();
+    const users = data.data || data;
+    
+    return users.map((u: any) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone || '',
+      role: u.role as UserRole,
+      department: u.department,
+      createdAt: u.created_at
+    }));
   },
 
   createOfficer: async (userData: { email: string; password: string; name: string; department: string; phone?: string }): Promise<any> => {

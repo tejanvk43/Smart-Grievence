@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { DashboardStats } from '../types';
+import { DashboardStats, User } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Users, FileText, CheckSquare, Activity, UserPlus, X } from 'lucide-react';
+import { Users, FileText, CheckSquare, Activity, UserPlus, X, Shield } from 'lucide-react';
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [showOfficerModal, setShowOfficerModal] = useState(false);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [officers, setOfficers] = useState<User[]>([]);
+  const [loadingOfficers, setLoadingOfficers] = useState(false);
   const [officerForm, setOfficerForm] = useState({
     email: '',
     password: '',
@@ -23,7 +25,21 @@ const AdminDashboard: React.FC = () => {
       setStats(data);
     };
     fetchStats();
+    loadOfficers();
   }, []);
+
+  const loadOfficers = async () => {
+    setLoadingOfficers(true);
+    try {
+      const allUsers = await api.getAllUsers();
+      const officerList = allUsers.filter((u: User) => u.role === 'OFFICER');
+      setOfficers(officerList);
+    } catch (error) {
+      console.error('Failed to fetch officers:', error);
+    } finally {
+      setLoadingOfficers(false);
+    }
+  };
 
   useEffect(() => {
     const fetchDepartments = async () => {
@@ -45,6 +61,7 @@ const AdminDashboard: React.FC = () => {
       await api.createOfficer(officerForm);
       setFormMessage({ type: 'success', text: 'Officer created successfully!' });
       setOfficerForm({ email: '', password: '', name: '', department: '', phone: '' });
+      loadOfficers(); // Reload officers list
       setTimeout(() => {
         setShowOfficerModal(false);
         setFormMessage({ type: '', text: '' });
@@ -187,6 +204,64 @@ const AdminDashboard: React.FC = () => {
            <p className="text-blue-200">Current routing accuracy based on user feedback</p>
         </div>
         <div className="text-4xl font-bold text-green-400">92.4%</div>
+      </div>
+
+      {/* Officers List */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Shield size={20} className="text-indigo-600" />
+            Registered Officers
+          </h2>
+          <span className="text-sm text-gray-500">{officers.length} total</span>
+        </div>
+
+        {loadingOfficers ? (
+          <div className="text-center py-8">
+            <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-gray-500 mt-2">Loading officers...</p>
+          </div>
+        ) : officers.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <Shield size={48} className="mx-auto mb-2 text-gray-300" />
+            <p>No officers created yet.</p>
+            <p className="text-sm">Click "Create Officer" to add one.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Department</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Phone</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {officers.map((officer) => (
+                  <tr key={officer.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-sm font-medium">
+                          {officer.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-medium text-gray-900">{officer.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{officer.email}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">
+                        {officer.department}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{officer.phone || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Create Officer Modal */}

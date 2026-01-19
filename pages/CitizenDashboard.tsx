@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { User, Complaint } from '../types';
 import { api } from '../services/api';
 import ComplaintCard from '../components/ComplaintCard';
-import { Plus, List, MapPin, Upload, X, Loader2 } from 'lucide-react';
+import StatusBadge from '../components/StatusBadge';
+import { Plus, List, MapPin, Upload, X, Loader2, Calendar, AlertCircle } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -12,6 +13,7 @@ const CitizenDashboard: React.FC<Props> = ({ user }) => {
   const [activeTab, setActiveTab] = useState<'submit' | 'list'>('list');
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   
   // Form State
   const [title, setTitle] = useState('');
@@ -114,7 +116,7 @@ const CitizenDashboard: React.FC<Props> = ({ user }) => {
                 key={c.id} 
                 complaint={c} 
                 role={user.role} 
-                onClick={() => {}} // Could open detail modal
+                onClick={() => setSelectedComplaint(c)}
               />
             ))
           )}
@@ -228,6 +230,115 @@ const CitizenDashboard: React.FC<Props> = ({ user }) => {
               </div>
             </form>
           )}
+        </div>
+      )}
+
+      {/* Complaint Detail Modal */}
+      {selectedComplaint && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedComplaint(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200 flex justify-between items-start">
+              <div>
+                <span className="text-xs text-gray-500 font-mono">#{selectedComplaint.id}</span>
+                <h2 className="text-2xl font-bold text-gray-900 mt-1">{selectedComplaint.title}</h2>
+              </div>
+              <button onClick={() => setSelectedComplaint(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Description</h3>
+                <p className="text-gray-600">{selectedComplaint.description}</p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Status</h3>
+                  <StatusBadge status={selectedComplaint.status} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Priority</h3>
+                  <span className={`inline-flex items-center gap-1 text-sm font-medium ${selectedComplaint.priority === 'High' ? 'text-red-600' : 'text-gray-600'}`}>
+                    <AlertCircle size={16} />
+                    {selectedComplaint.priority}
+                  </span>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">Location</h3>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <MapPin size={16} />
+                  <span>{selectedComplaint.location}</span>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">Department</h3>
+                <span className="inline-block bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-sm">
+                  {selectedComplaint.department}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Submitted</h3>
+                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                    <Calendar size={16} />
+                    <span>{new Date(selectedComplaint.dateSubmitted).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Last Updated</h3>
+                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                    <Calendar size={16} />
+                    <span>{new Date(selectedComplaint.dateUpdated).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {selectedComplaint.nlpAnalysis && (
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">AI Analysis</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Confidence Score:</span>
+                      <span className="font-medium text-primary">
+                        {Math.round(selectedComplaint.nlpAnalysis.confidenceScore * 100)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Urgency:</span>
+                      <span className="font-medium">{selectedComplaint.nlpAnalysis.urgency}</span>
+                    </div>
+                    {selectedComplaint.nlpAnalysis.keywords && selectedComplaint.nlpAnalysis.keywords.length > 0 && (
+                      <div>
+                        <span className="text-gray-600">Keywords:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedComplaint.nlpAnalysis.keywords.map((keyword, idx) => (
+                            <span key={idx} className="bg-white text-blue-700 px-2 py-0.5 rounded text-xs">
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setSelectedComplaint(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

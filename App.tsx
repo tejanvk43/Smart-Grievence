@@ -1,22 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from './types';
 import LandingPage from './pages/LandingPage';
 import CitizenDashboard from './pages/CitizenDashboard';
 import OfficerDashboard from './pages/OfficerDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import { LayoutDashboard, LogOut, Bell, User as UserIcon } from 'lucide-react';
+import { api } from './services/api';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<'dashboard' | 'notifications' | 'profile'>('dashboard');
+  const [loading, setLoading] = useState(true);
+
+  // Restore user from localStorage on mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        localStorage.removeItem('user');
+      }
+    }
+    setLoading(false);
+  }, []);
 
   const handleAuthSuccess = (loggedUser: User) => {
     setUser(loggedUser);
+    localStorage.setItem('user', JSON.stringify(loggedUser));
   };
 
   const handleLogout = () => {
     setUser(null);
+    localStorage.removeItem('user');
+    api.logout();
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return <LandingPage onAuthSuccess={handleAuthSuccess} />;
